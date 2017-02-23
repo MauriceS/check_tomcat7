@@ -63,7 +63,7 @@ my $rcslog = '
 my $timeout = 10;			# Default timeout
 my $host = 'localhost';		# default host header
 my $host_ip = 'localhost';		# default IP
-my $port = 80; 			# default port
+my $port = 443; 			# default port
 my $user = 'nagios';		# default user
 my $password = 'nagios';	# default password
 my $uri = '/manager/status?XML=true';			#default URI
@@ -78,6 +78,11 @@ my $opt_warn_memory = "5%";
 my $opt_crit_memory = "2%";
 my $warn_memory;
 my $crit_memory;
+# PermGen memory thresholds are tight, because garbage collection kicks in only when memory is low anyway
+my $opt_warn_permgen = "5%";
+my $opt_crit_permgen = "2%";
+my $warn_permgen;
+my $crit_permgen;
 
 my $xpath;
 my %xpath_checks = (
@@ -87,6 +92,8 @@ my %xpath_checks = (
 	memMax => '/status/jvm/memory/@max',
 	memFree => '/status/jvm/memory/@free',
 	memTotal => '/status/jvm/memory/@total',
+	pgUsed => '/status/jvm/memorypool[@name="CMS Perm Gen"]/@usageUsed',
+	pgMax => '/status/jvm/memorypool[@name="CMS Perm Gen"]/@usageMax',
 );
 # XPath examples...
 # /status/jvm/memory/@free
@@ -208,6 +215,9 @@ if ( defined($optarg{c}) ) {
 	if ( $threshold[1] ne "" ) {
 		$opt_crit_memory = $threshold[1];
 	}
+	if ( $threshold[2] ne "" ) {
+		$opt_crit_permgen = $threshold[2];
+	}
 }
 
 if ( defined($optarg{n}) ) {
@@ -223,6 +233,9 @@ if ( defined($optarg{w}) ) {
 	}
 	if ( $threshold[1] ne "" ) {
 		$opt_warn_memory = $threshold[1];
+	}
+	if ( $threshold[2] ne "" ) {
+		$opt_warn_permgen = $threshold[2];
 	}
 }
 
@@ -283,7 +296,7 @@ if ($http_response->is_success) {
 				push @message_perf, "$path=not_numeric";
 				next;
 			}
-			if ( $xpath_check =~ /^mem/ ) {
+			if ( $xpath_check =~ /^mem/ || $xpath_check =~ /^pg/ ) {
 				# This is the .../memory/.. xpath, just store the value in the hash
 				$xpath_check_results{$xpath_check} = $value;
 			} elsif ( $connector_name =~ /${connector_arg}/ && $connector_name ne "" ) {
@@ -326,6 +339,41 @@ if ($http_response->is_success) {
 		$xpath_check_results{memMax} / ( 1024 * 1024) 
 		);
 	push @message_perf, "used=".( $xpath_check_results{memMax} - $jvm_mem_available ) . " free=$jvm_mem_available max=$xpath_check_results{memMax}";
+
+	#----------------------------------------------
+	# Check permgen
+	#----------------------------------------------
+	my $jvm_pg_available = $xpath_check_results{pgMax} - $xpath_check_results{pgUsed};
+	printv(sprintf("pgfree=%d pgmax=%d",$xpath_check_results{pgUsed}/1024, $xpath_check_results{pgMax}/1024));
+	if ( $opt_warn_permgen =~ /(.*)%$/ ) {
+		$warn_permgen = int($1 * $xpath_check_results{pgMax} / 100);
+	} else {
+		# Convert to bytes
+		$warn_permgen =int($opt_warn_permgen * 1024 * 1024);
+	}
+	printv("warning at $warn_permgen bytes (". ( $warn_permgen / 1024 /1024 )."MiB) free, max=$xpath_check_results{pgMax}");
+	
+	if ( $opt_crit_permgen =~ /(.*)%$/ ) {
+		$crit_permgen = int($1 * $xpath_check_results{pgMax} / 100);
+	} else {
+		# Convert to bytes
+		$crit_permgen = int($opt_crit_permgen * 1024 * 1024);
+	}
+	printv("critical at $crit_permgen bytes (". ( $crit_permgen / 1024 /1024 )."MiB) free, max=$xpath_check_results{pgMax}");
+	
+	if ( $jvm_pg_available <= $crit_permgen ) {
+		$exit |= 2;
+		push @message, sprintf("PermGen critical <%d MiB,",$crit_permgen/1024/1024);
+	} elsif ( $jvm_pg_available <= $warn_permgen ) {
+		$exit |= 1;
+		push @message, sprintf("PermGen low <%d MiB,",$warn_permgen/1024/1024);
+	}
+	push @message, sprintf("PermGen in use %d MiB (%d MiB);",
+		( $xpath_check_results{pgUsed} ) / ( 1024 * 1024),
+		$xpath_check_results{pgMax} / ( 1024 * 1024) 
+		);
+	push @message_perf, "usedPermGen=$xpath_check_results{pgUsed} maxPermGen=$xpath_check_results{pgMax}";
+
 
 	#----------------------------------------------
 	# Check threads

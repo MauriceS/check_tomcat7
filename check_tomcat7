@@ -40,9 +40,12 @@ my @message_perf;
 my $exit = 0;
 my @exit = qw/OK: WARNING: CRITICAL:/;
 
-my $rcs_id = '$Id: check_tomcat.pl,v 1.4 2013/03/15 10:45:41 george Exp $';
+my $rcs_id = '$Id: check_tomcat.pl,v 1.5 2017/02/23 11:20:00 maurice Exp $';
 my $rcslog = '
 	$Log: check_tomcat.pl,v $
+	Revision 1.5  2017/02/23 11:20:00  maurice
+	Added PermGen memory checks and performance data
+
 	Revision 1.4  2013/03/15 10:45:41  george
 	Fixed bug in % threads thresholds, which appear if multiple connectors are in use (thanks to Andreas Lamprecht for reporting this).
 	Changed MB to MiB in output text.
@@ -124,14 +127,14 @@ Usage:
 		eg 'ajp-bio-8009' or 'http-8080' or '^http-'.
 		default is to check: .*-port_number\$
 		Note: leading/trailing quotes and spaces are trimmed from the connector name for matching.
-	-w  ... warning thresholds for threads,memory (memory in MiB)
-		eg 20,50 or 10%,25% default is $opt_warn_threads,$opt_warn_memory
-	-c  ... critical thresholds for threads,memory (memory in MiB)
-		eg 10,20 or 5%,10%, default is $opt_crit_threads,$opt_crit_memory
+	-w  ... warning thresholds for threads,memory,permgen (memory in MiB)
+		eg 20,50,50 or 10%,25%,25% default is $opt_warn_threads,$opt_warn_memory,$opt_warn_permgen
+	-c  ... critical thresholds for threads,memory,permgen (memory in MiB)
+		eg 10,20,20 or 5%,10%,20% default is $opt_crit_threads,$opt_crit_memory,$opt_crit_permgen
 Example:
 	$0 -H app01.signon.devint.lpo -p 8080 -t 5 -l nagios -a apples -u '/manager/status?XML=true'
-	$0 -H app01.signon.devint.lpo -p 8080 -w 10%,50 -c 5%,10
-	$0 -H app01.signon.devint.lpo -p 8080 -w 10%,50 -c 5%,10 -l admin -a admin -n .
+	$0 -H app01.signon.devint.lpo -p 8080 -w 10%,50,50 -c 5%,10,10
+	$0 -H app01.signon.devint.lpo -p 8080 -w 10%,50,50 -c 5%,10,10 -l admin -a admin -n .
 
 Notes:
 	The -I parameters connects to a alternate hostname/IP, using the Host header from the -H parameter
